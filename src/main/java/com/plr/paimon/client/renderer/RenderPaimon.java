@@ -40,7 +40,7 @@ public class RenderPaimon extends EntityRenderer<EntityPaimon> {
         VertexConsumer vertexConsumer = bufferIn.getBuffer(this.paimonModel.renderType(getTextureLocation(entityIn)));
         matrixStackIn.scale(-1.0F, -1.0F, 1.0F);
         matrixStackIn.scale(s, s, s);
-        this.paimonModel.renderToBuffer(matrixStackIn, vertexConsumer, packedLightIn, OverlayTexture.NO_OVERLAY, 1.0F, 1.0F, 1.0F, 1.0F);
+        this.paimonModel.renderToBuffer(matrixStackIn, vertexConsumer, packedLightIn, OverlayTexture.NO_OVERLAY, -1);
         matrixStackIn.scale(1.0F / s, 1.0F / s, 1.0F / s);
         matrixStackIn.popPose();
         super.render(entityIn, entityYaw, partialTicks, matrixStackIn, bufferIn, packedLightIn);
@@ -48,6 +48,6 @@ public class RenderPaimon extends EntityRenderer<EntityPaimon> {
 
     @Override
     public ResourceLocation getTextureLocation(EntityPaimon entity) {
-        return new ResourceLocation(Constants.MOD_ID, "textures/entity/paimon.png");
+        return ResourceLocation.fromNamespaceAndPath(Constants.MOD_ID, "textures/entity/paimon.png");
     }
 }

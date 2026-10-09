@@ -9,29 +9,29 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.item.Item;
+import net.minecraft.world.item.Item.TooltipContext;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Rarity;
 import net.minecraft.world.item.TooltipFlag;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
 import top.theillusivec4.curios.api.SlotContext;
 import top.theillusivec4.curios.api.type.capability.ICurio;
 import top.theillusivec4.curios.api.type.capability.ICurioItem;
 
 import java.util.List;
+import java.util.UUID;
 
 public class ItemPaimonMedal extends Item implements ICurioItem {
-    public static String TAG_PAIMONID = "paimon_id";
 
     public ItemPaimonMedal() {
         super(new Properties().rarity(Rarity.EPIC).stacksTo(1).setNoRepair());
     }
 
     @Override
-    public void appendHoverText(ItemStack stack, @Nullable Level world, List<Component> tooltip, TooltipFlag flags) {
-        super.appendHoverText(stack, world, tooltip, flags);
+    public void appendHoverText(ItemStack stack, TooltipContext context, List<Component> tooltip, TooltipFlag flags) {
+        super.appendHoverText(stack, context, tooltip, flags);
         tooltip.add(Component.translatable("paimon.info.paimon_medal").withStyle(ChatFormatting.ITALIC));
     }
 
@@ -40,18 +40,19 @@ public class ItemPaimonMedal extends Item implements ICurioItem {
         if (!(slotContext.entity() instanceof ServerPlayer player)) return;
         if (player.level().isClientSide() || player.level().getGameTime() % 20 != 0) return;
         final IPaimonOwner owner = (IPaimonOwner) player;
-        int id = owner.paimon$getPaimonId();
-        Entity e = player.level().getEntity(id);
-        if (!player.getCooldowns().isOnCooldown(this) && (!(e instanceof EntityPaimon))) {
+        UUID uuid = owner.paimon$getPaimonUuid();
+        boolean hasPaimon = uuid != null && findPaimon(player, uuid) != null;
+        if (!player.getCooldowns().isOnCooldown(this) && !hasPaimon) {
             Vec3 lookVec = player.getLookAngle().normalize().scale(1.5D);
-            Vec3 spawnPoint = player.position().add(lookVec.x, 1.0D, lookVec.z);
+            // Spawn slightly behind the player so Paimon doesn't pop up right in front of them.
+            Vec3 spawnPoint = player.position().add(-lookVec.x, 1.0D, -lookVec.z);
             EntityPaimon paimon = new EntityPaimon(player.level(), spawnPoint.x, spawnPoint.y, spawnPoint.z);
-            paimon.setOwnerID(player.getId());
+            paimon.setOwnerUUID(player.getUUID());
             paimon.faceEntity(player, 360.0F, 360.0F);
             player.level().addFreshEntity(paimon);
             randomSpawnSound(paimon, player.level().random.nextInt(2));
             player.getCooldowns().addCooldown(this, 100);
-            owner.paimon$setPaimonId(paimon.getId());
+            owner.paimon$setPaimonUuid(paimon.getUUID());
         }
     }
 
@@ -61,9 +62,23 @@ public class ItemPaimonMedal extends Item implements ICurioItem {
         final Level level = player.level();
         if (level.isClientSide()) return;
         final IPaimonOwner owner = (IPaimonOwner) player;
-        if (!(level.getEntity(owner.paimon$getPaimonId()) instanceof EntityPaimon paimon)) return;
-        paimon.vanish();
-        owner.paimon$setPaimonId(-1);
+        UUID uuid = owner.paimon$getPaimonUuid();
+        if (uuid != null) {
+            EntityPaimon paimon = findPaimon(player, uuid);
+            if (paimon != null) {
+                paimon.vanish();
+            }
+        }
+        // Always clear the tracked uuid, even when the entity could not be found (it may be in an
+        // unloaded chunk; the entity itself will vanish on its next tick once it loads back).
+        owner.paimon$setPaimonUuid(null);
+    }
+
+    private static EntityPaimon findPaimon(ServerPlayer player, UUID uuid) {
+        for (EntityPaimon paimon : player.level().getEntitiesOfClass(EntityPaimon.class, player.getBoundingBox().inflate(64.0), e -> e.getUUID().equals(uuid))) {
+            return paimon;
+        }
+        return null;
     }
 
     public float getSoundVolume() {
@@ -79,7 +94,7 @@ public class ItemPaimonMedal extends Item implements ICurioItem {
 
     @NotNull
     @Override
-    public ICurio.DropRule getDropRule(SlotContext slotContext, DamageSource source, int lootingLevel, boolean recentlyHit, ItemStack stack) {
+    public ICurio.DropRule getDropRule(SlotContext slotContext, DamageSource source, boolean recentlyHit, ItemStack stack) {
         return ICurio.DropRule.ALWAYS_KEEP;
     }
 }

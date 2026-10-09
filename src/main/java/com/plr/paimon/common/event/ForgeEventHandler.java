@@ -8,19 +8,15 @@ import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.entity.projectile.FishingHook;
 import net.minecraft.world.level.Level;
-import net.neoforged.bus.api.SubscribeEvent;
-import net.neoforged.fml.common.Mod;
 import net.neoforged.neoforge.event.entity.player.ItemFishedEvent;
 import net.neoforged.neoforge.event.entity.player.PlayerEvent;
 import net.neoforged.neoforge.items.ItemHandlerHelper;
 
 import java.util.concurrent.ThreadLocalRandom;
 
-@Mod.EventBusSubscriber
 public class ForgeEventHandler {
     private static final String TAG_PAIMONREWARD = "paimonreward";
 
-    @SubscribeEvent
     public static void onFished(ItemFishedEvent event) {
         if (!ConfigHandler.COMMON.getMedalByFishing.get()) return;
         final Player player = event.getEntity();
@@ -51,7 +47,6 @@ public class ForgeEventHandler {
         tag.put("PlayerPersisted", data);
     }
 
-    @SubscribeEvent
     public static void onPlayerJoinWorld(PlayerEvent.PlayerLoggedInEvent event) {
         if (!ConfigHandler.COMMON.spawnWithMedal.get()) return;
         CompoundTag nbtData = event.getEntity().getPersistentData();

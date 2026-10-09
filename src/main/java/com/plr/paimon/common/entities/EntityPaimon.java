@@ -1,7 +1,10 @@
 package com.plr.paimon.common.entities;
 
 import com.plr.paimon.common.core.ConfigHandler;
+import com.plr.paimon.common.core.EquipmentHandler;
 import com.plr.paimon.common.core.ModSounds;
+import com.plr.paimon.common.items.ModItems;
+import net.minecraft.core.component.DataComponents;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.syncher.EntityDataAccessor;
@@ -20,6 +23,8 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.Vec3;
 
+import java.util.Optional;
+import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
 
 public class EntityPaimon extends ThrowableProjectile {
@@ -29,12 +34,12 @@ public class EntityPaimon extends ThrowableProjectile {
     private static final int THANK_SOUNDS = 3;
     private static final String TAG_PITCH = "pitch";
     private static final String TAG_ROTATION = "rotation";
-    private static final String TAG_OWNER_ID = "owner_id";
+    private static final String TAG_OWNER_UUID = "owner_uuid";
     private static final String TAG_FOLLOWING = "following";
     private static final String TAG_ANIMATION = "animation";
     private static final String TAG_VOICECD = "voicecd";
     private static final String TAG_TPCD = "tpcd";
-    private static final EntityDataAccessor<Integer> OWNER_ID = SynchedEntityData.defineId(EntityPaimon.class, EntityDataSerializers.INT);
+    private static final EntityDataAccessor<Optional<UUID>> OWNER_UUID = SynchedEntityData.defineId(EntityPaimon.class, EntityDataSerializers.OPTIONAL_UUID);
 
     private static final EntityDataAccessor<Float> PITCH = SynchedEntityData.defineId(EntityPaimon.class, EntityDataSerializers.FLOAT);
 
@@ -113,14 +118,21 @@ public class EntityPaimon extends ThrowableProjectile {
         if (getTPCD() > 0) {
             setTPCD(getTPCD() - 1);
         }
-        if (getOwnerID() != -1) {
-            Entity owner = this.level().getEntity(getOwnerID());
-            if (owner instanceof Player) {
-                player = (Player) owner;
+        if (getOwnerUUID().isPresent()) {
+            Player owner = this.level().getPlayerByUUID(getOwnerUUID().get());
+            if (owner != null) {
+                player = owner;
             }
         }
 
         if (player == null) {
+            vanish();
+            return;
+        }
+        // Vanish as soon as the owner is no longer wearing the Paimon Medal. This covers cases where
+        // onUnequip cannot find the entity (e.g. a stale stored entity/id after re-logging), so Paimon
+        // never keeps following a player who has taken the medal off.
+        if (!this.level().isClientSide && EquipmentHandler.findOrEmpty(ModItems.paimonMedal.get(), player).isEmpty()) {
             vanish();
             return;
         }
@@ -130,9 +142,9 @@ public class EntityPaimon extends ThrowableProjectile {
         Vec3 targetPos = playerPos.add(lookVec.x, lookVec.y, lookVec.z).add(0.0D, edge ? 2.5D : 1.2D, 0.0D);
 
         if (player.isCrouching()) {
-            if (player.getMainHandItem().getItem().isEdible()) {
+            if (player.getMainHandItem().has(DataComponents.FOOD)) {
                 targetPos = playerPos.add((player.getLookAngle()).x, edge ? 2.5D : 1.2D, (player.getLookAngle()).z);
-            } else if (player.getOffhandItem().getItem().isEdible()) {
+            } else if (player.getOffhandItem().has(DataComponents.FOOD)) {
                 lookVec = lookVec.reverse();
                 targetPos = playerPos.add(lookVec.x, lookVec.y, lookVec.z).add(0.0D, edge ? 2.5D : 1.2D, 0.0D);
             }
@@ -177,16 +189,18 @@ public class EntityPaimon extends ThrowableProjectile {
         }
         this.changeTicks++;
 
-        if (getFollowing()) {
-            Vec3 motion = (new Vec3(targetPos.x - getX(), targetPos.y - getY(), targetPos.z - getZ())).normalize().scale(0.2199999988079071D);
-            if (!posEqual(position(), targetPos)) {
-                setDeltaMovement(motion);
-                faceEntity(player, 360.0F, 360.0F);
-                if (this.tickCount % 12 == 0 && level() instanceof ServerLevel level) {
-                    level.sendParticles(ParticleTypes.END_ROD, getX() - motion.x, getY(), getZ() - motion.z, 1, -motion.x, -0.05D, -motion.z, .0);
-                }
-            } else {
-                setDeltaMovement(Vec3.ZERO);
+        // Smoothly ease toward the target instead of the old constant-speed movement. A proportional
+        // (lerp) motion avoids the stop/start jitter near the target, and the speed cap keeps Paimon
+        // able to keep up with a sprinting player so it no longer falls 16 blocks back and snaps via teleport.
+        Vec3 diff = targetPos.subtract(position());
+        double distance = diff.length();
+        if (distance > 0.05) {
+            double speed = Math.min(distance * 0.25, 0.5);
+            Vec3 motion = diff.scale(speed / distance);
+            setDeltaMovement(motion);
+            faceEntity(player, 360.0F, 360.0F);
+            if (this.tickCount % 12 == 0 && level() instanceof ServerLevel level) {
+                level.sendParticles(ParticleTypes.END_ROD, getX() - motion.x, getY(), getZ() - motion.z, 1, -motion.x, -0.05D, -motion.z, .0);
             }
         } else {
             setDeltaMovement(Vec3.ZERO);
@@ -210,19 +224,27 @@ public class EntityPaimon extends ThrowableProjectile {
     }
 
     @Override
-    public void defineSynchedData() {
-        this.entityData.define(ROTATION, 0.0F);
-        this.entityData.define(PITCH, 0.0F);
-        this.entityData.define(OWNER_ID, -1);
-        this.entityData.define(FOLLOWING, false);
-        this.entityData.define(ANIMATION, 0);
-        this.entityData.define(VOICECD, 0);
-        this.entityData.define(TPCD, 0);
+    protected void defineSynchedData(SynchedEntityData.Builder builder) {
+        builder.define(ROTATION, 0.0F);
+        builder.define(PITCH, 0.0F);
+        builder.define(OWNER_UUID, Optional.empty());
+        builder.define(FOLLOWING, false);
+        builder.define(ANIMATION, 0);
+        builder.define(VOICECD, 0);
+        builder.define(TPCD, 0);
     }
 
     @Override
     public boolean isPickable() {
-        return !this.isRemoved();
+        // Only allow Paimon to be targeted when its owner is sneaking while holding food (i.e. trying to
+        // feed it). Otherwise it stays non-pickable so it never intercepts the crosshair, which would
+        // otherwise make Jade target it and block mining/block interaction.
+        Player owner = getOwnerUUID().map(this.level()::getPlayerByUUID).orElse(null);
+        if (owner != null) {
+            return owner.isSecondaryUseActive()
+                    && (owner.getMainHandItem().has(DataComponents.FOOD) || owner.getOffhandItem().has(DataComponents.FOOD));
+        }
+        return false;
     }
 
 
@@ -231,7 +253,7 @@ public class EntityPaimon extends ThrowableProjectile {
         if (player.isSecondaryUseActive()) {
             ItemStack stack = player.getItemInHand(hand);
 
-            if (stack.getItem().isEdible()) {
+            if (stack.has(DataComponents.FOOD)) {
 
                 if (!this.level().isClientSide) {
                     if (getVoiceCD() <= ConfigHandler.COMMON.soundInterval.get()) {
@@ -355,7 +377,9 @@ public class EntityPaimon extends ThrowableProjectile {
 
     @Override
     public void readAdditionalSaveData(CompoundTag compound) {
-        setOwnerID(compound.getInt("owner_id"));
+        if (compound.hasUUID("owner_uuid")) {
+            setOwnerUUID(compound.getUUID("owner_uuid"));
+        }
         setRotation(compound.getFloat("rotation"));
         setPitch(compound.getFloat("pitch"));
         setFollowing(compound.getBoolean("following"));
@@ -367,7 +391,9 @@ public class EntityPaimon extends ThrowableProjectile {
 
     @Override
     public void addAdditionalSaveData(CompoundTag compound) {
-        compound.putInt("owner_id", getOwnerID());
+        if (getOwnerUUID().isPresent()) {
+            compound.putUUID("owner_uuid", getOwnerUUID().get());
+        }
         compound.putFloat("rotation", getRotation());
         compound.putFloat("pitch", getPitch());
         compound.putBoolean("following", getFollowing());
@@ -400,12 +426,12 @@ public class EntityPaimon extends ThrowableProjectile {
         return this.entityData.get(TPCD);
     }
 
-    public void setOwnerID(int i) {
-        this.entityData.set(OWNER_ID, i);
+    public void setOwnerUUID(UUID uuid) {
+        this.entityData.set(OWNER_UUID, Optional.ofNullable(uuid));
     }
 
-    public int getOwnerID() {
-        return this.entityData.get(OWNER_ID);
+    public Optional<UUID> getOwnerUUID() {
+        return this.entityData.get(OWNER_UUID);
     }
 
     public float getRotation() {

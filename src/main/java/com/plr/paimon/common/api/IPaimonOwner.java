@@ -1,9 +1,11 @@
 package com.plr.paimon.common.api;
 
-public interface IPaimonOwner {
-    void paimon$setPaimonId(int id);
+import java.util.UUID;
 
-    int paimon$getPaimonId();
+public interface IPaimonOwner {
+    void paimon$setPaimonUuid(UUID uuid);
+
+    UUID paimon$getPaimonUuid();
 
     boolean paimon$rewardGained();
 

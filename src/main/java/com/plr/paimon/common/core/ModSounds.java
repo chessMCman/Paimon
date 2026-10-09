@@ -41,6 +41,6 @@ public class ModSounds {
     public static final DeferredHolder<SoundEvent, SoundEvent> paimon_thank_2 = makeSoundEvent("paimon_thank_2");
 
     private static DeferredHolder<SoundEvent, SoundEvent> makeSoundEvent(String name) {
-        return SOUNDS.register(name, () -> SoundEvent.createVariableRangeEvent(new ResourceLocation(Constants.MOD_ID, name)));
+        return SOUNDS.register(name, () -> SoundEvent.createVariableRangeEvent(ResourceLocation.fromNamespaceAndPath(Constants.MOD_ID, name)));
     }
 }

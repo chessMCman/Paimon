@@ -13,10 +13,12 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
+import java.util.UUID;
+
 @Mixin(ServerPlayer.class)
 public abstract class MixinServerPlayer extends Player implements IPaimonOwner {
     @Unique
-    private int paimon$paimonId = -1;
+    private UUID paimon$paimonUuid = null;
     @Unique
     private boolean paimon$rewardGained = false;
 
@@ -25,13 +27,13 @@ public abstract class MixinServerPlayer extends Player implements IPaimonOwner {
     }
 
     @Override
-    public void paimon$setPaimonId(int id) {
-        this.paimon$paimonId = id;
+    public void paimon$setPaimonUuid(UUID uuid) {
+        this.paimon$paimonUuid = uuid;
     }
 
     @Override
-    public int paimon$getPaimonId() {
-        return paimon$paimonId;
+    public UUID paimon$getPaimonUuid() {
+        return paimon$paimonUuid;
     }
 
     @Override
@@ -46,12 +48,13 @@ public abstract class MixinServerPlayer extends Player implements IPaimonOwner {
 
     @Inject(method = "addAdditionalSaveData", at = @At("TAIL"))
     private void inject$addAdditionalSaveData(CompoundTag pCompound, CallbackInfo ci) {
-        pCompound.putInt("paimon_id", paimon$paimonId);
+        if (paimon$paimonUuid != null) {
+            pCompound.putUUID("paimon_uuid", paimon$paimonUuid);
+        }
     }
 
     @Inject(method = "readAdditionalSaveData", at = @At("TAIL"))
     private void inject$readAdditionalSaveData(CompoundTag pCompound, CallbackInfo ci) {
-        paimon$paimonId = pCompound.getInt("paimon_id");
+        paimon$paimonUuid = pCompound.hasUUID("paimon_uuid") ? pCompound.getUUID("paimon_uuid") : null;
     }
-
 }

@@ -14,7 +14,7 @@ import net.minecraft.resources.ResourceLocation;
 
 
 public class ModelPaimon extends EntityModel<EntityPaimon> {
-    public static final ModelLayerLocation MODEL_LAYER_LOCATION = new ModelLayerLocation(new ResourceLocation(Constants.MOD_ID, "paimon"), "main");
+    public static final ModelLayerLocation MODEL_LAYER_LOCATION = new ModelLayerLocation(ResourceLocation.fromNamespaceAndPath(Constants.MOD_ID, "paimon"), "main");
 
     public final ModelPart bone10;
     public final ModelPart body;
@@ -223,8 +223,9 @@ public class ModelPaimon extends EntityModel<EntityPaimon> {
     }
 
 
-    public void renderToBuffer(PoseStack matrixStack, VertexConsumer buffer, int packedLight, int packedOverlay, float red, float green, float blue, float alpha) {
-        this.bone10.render(matrixStack, buffer, packedLight, packedOverlay);
+    @Override
+    public void renderToBuffer(PoseStack matrixStack, VertexConsumer buffer, int packedLight, int packedOverlay, int color) {
+        this.bone10.render(matrixStack, buffer, packedLight, packedOverlay, color);
     }
 
     public void setRotationAngle(ModelPart modelRenderer, float x, float y, float z) {
