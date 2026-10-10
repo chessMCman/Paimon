@@ -39,21 +39,29 @@ public class ItemPaimonMedal extends Item implements ICurioItem {
     public void curioTick(SlotContext slotContext, ItemStack stack) {
         if (!(slotContext.entity() instanceof ServerPlayer player)) return;
         if (player.level().isClientSide() || player.level().getGameTime() % 20 != 0) return;
+        if (player.getCooldowns().isOnCooldown(this)) return;
         final IPaimonOwner owner = (IPaimonOwner) player;
-        UUID uuid = owner.paimon$getPaimonUuid();
-        boolean hasPaimon = uuid != null && findPaimon(player, uuid) != null;
-        if (!player.getCooldowns().isOnCooldown(this) && !hasPaimon) {
-            Vec3 lookVec = player.getLookAngle().normalize().scale(1.5D);
-            // Spawn slightly behind the player so Paimon doesn't pop up right in front of them.
-            Vec3 spawnPoint = player.position().add(-lookVec.x, 1.0D, -lookVec.z);
-            EntityPaimon paimon = new EntityPaimon(player.level(), spawnPoint.x, spawnPoint.y, spawnPoint.z);
-            paimon.setOwnerUUID(player.getUUID());
-            paimon.faceEntity(player, 360.0F, 360.0F);
-            player.level().addFreshEntity(paimon);
-            randomSpawnSound(paimon, player.level().random.nextInt(2));
-            player.getCooldowns().addCooldown(this, 100);
-            owner.paimon$setPaimonUuid(paimon.getUUID());
+        // Never spawn while a live Paimon already belongs to this player. Match on the *owner* uuid
+        // rather than the single tracked entity uuid: after a teleport the tracked uuid can point at a
+        // copy left behind in an unloaded chunk / another dimension while the real Paimon is right
+        // here. When we find it, re-sync the tracked uuid and skip spawning.
+        EntityPaimon existing = findOwnedPaimon(player);
+        if (existing != null) {
+            if (!existing.getUUID().equals(owner.paimon$getPaimonUuid())) {
+                owner.paimon$setPaimonUuid(existing.getUUID());
+            }
+            return;
         }
+        Vec3 lookVec = player.getLookAngle().normalize().scale(1.5D);
+        // Spawn slightly behind the player so Paimon doesn't pop up right in front of them.
+        Vec3 spawnPoint = player.position().add(-lookVec.x, 1.0D, -lookVec.z);
+        EntityPaimon paimon = new EntityPaimon(player.level(), spawnPoint.x, spawnPoint.y, spawnPoint.z);
+        paimon.setOwnerUUID(player.getUUID());
+        paimon.faceEntity(player, 360.0F, 360.0F);
+        player.level().addFreshEntity(paimon);
+        randomSpawnSound(paimon, player.level().random.nextInt(2));
+        player.getCooldowns().addCooldown(this, 100);
+        owner.paimon$setPaimonUuid(paimon.getUUID());
     }
 
     @Override
@@ -62,20 +70,22 @@ public class ItemPaimonMedal extends Item implements ICurioItem {
         final Level level = player.level();
         if (level.isClientSide()) return;
         final IPaimonOwner owner = (IPaimonOwner) player;
-        UUID uuid = owner.paimon$getPaimonUuid();
-        if (uuid != null) {
-            EntityPaimon paimon = findPaimon(player, uuid);
-            if (paimon != null) {
-                paimon.vanish();
-            }
+        for (EntityPaimon paimon : findOwnedPaimons(player)) {
+            paimon.vanish();
         }
-        // Always clear the tracked uuid, even when the entity could not be found (it may be in an
+        // Always clear the tracked uuid, even when no entity could be found (it may be in an
         // unloaded chunk; the entity itself will vanish on its next tick once it loads back).
         owner.paimon$setPaimonUuid(null);
     }
 
-    private static EntityPaimon findPaimon(ServerPlayer player, UUID uuid) {
-        for (EntityPaimon paimon : player.level().getEntitiesOfClass(EntityPaimon.class, player.getBoundingBox().inflate(64.0), e -> e.getUUID().equals(uuid))) {
+    private static List<EntityPaimon> findOwnedPaimons(ServerPlayer player) {
+        final UUID ownerUuid = player.getUUID();
+        return player.level().getEntitiesOfClass(EntityPaimon.class, player.getBoundingBox().inflate(64.0),
+                e -> e.getOwnerUUID().isPresent() && e.getOwnerUUID().get().equals(ownerUuid));
+    }
+
+    private static EntityPaimon findOwnedPaimon(ServerPlayer player) {
+        for (EntityPaimon paimon : findOwnedPaimons(player)) {
             return paimon;
         }
         return null;

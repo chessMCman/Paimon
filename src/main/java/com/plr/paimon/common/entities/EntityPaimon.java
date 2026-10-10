@@ -57,6 +57,7 @@ public class EntityPaimon extends ThrowableProjectile {
     private final int MAX_CHANGE_TICKS;
     private int stayTicks;
     private int tooFarTicks;
+    private int duplicateCheckTicks;
     private int i;
     private final int MAX_ANIMATION_TICKS;
 
@@ -67,6 +68,7 @@ public class EntityPaimon extends ThrowableProjectile {
         this.MAX_CHANGE_TICKS = 8;
         this.stayTicks = 0;
         this.tooFarTicks = 0;
+        this.duplicateCheckTicks = 0;
         this.i = 0;
         this.MAX_ANIMATION_TICKS = 20;
     }
@@ -77,6 +79,7 @@ public class EntityPaimon extends ThrowableProjectile {
         this.MAX_CHANGE_TICKS = 8;
         this.stayTicks = 0;
         this.tooFarTicks = 0;
+        this.duplicateCheckTicks = 0;
         this.i = 0;
         this.MAX_ANIMATION_TICKS = 20;
         setPos(x, y, z);
@@ -100,6 +103,12 @@ public class EntityPaimon extends ThrowableProjectile {
         // renders as two overlapping Paimons drifting apart. Drive the mirror purely by server sync.
         if (this.level().isClientSide) {
             return;
+        }
+        if (++this.duplicateCheckTicks >= 20) {
+            this.duplicateCheckTicks = 0;
+            if (dedupeDuplicate()) {
+                return;
+            }
         }
         Player player = null;
         if (getAnimation() > 0) {
@@ -229,6 +238,32 @@ public class EntityPaimon extends ThrowableProjectile {
             randomVanishSound(this.level().random.nextInt(7));
         }
         discard();
+    }
+
+    /**
+     * Guard against one owner ending up with several Paimons. Teleporting can leave a Paimon behind
+     * in an unloaded chunk (or another dimension); the medal's tick then can't find it and spawns a
+     * fresh one. Once the old chunk reloads, both copies converge on the owner, stack on top of each
+     * other and play their voice lines together into noise. Resolve deterministically by keeping the
+     * oldest copy (lowest entity id, assigned monotonically per level) and vanishing the rest, so any
+     * duplicate pair always agrees on the same survivor.
+     *
+     * @return true if this copy was removed as a duplicate.
+     */
+    private boolean dedupeDuplicate() {
+        if (this.isRemoved() || getOwnerUUID().isEmpty()) {
+            return false;
+        }
+        UUID owner = getOwnerUUID().get();
+        int myId = this.getId();
+        for (EntityPaimon other : this.level().getEntitiesOfClass(EntityPaimon.class, this.getBoundingBox().inflate(64.0D),
+                e -> e.getOwnerUUID().isPresent() && e.getOwnerUUID().get().equals(owner))) {
+            if (other != this && !other.isRemoved() && other.getId() < myId) {
+                this.vanish();
+                return true;
+            }
+        }
+        return false;
     }
 
     @Override
