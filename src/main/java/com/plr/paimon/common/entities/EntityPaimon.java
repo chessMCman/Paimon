@@ -92,9 +92,15 @@ public class EntityPaimon extends ThrowableProjectile {
 
     @Override
     public void tick() {
-        Player player = null;
         super.tick();
         clearFire();
+        // This entity is server-authoritative. Running the follow/movement logic on the client mirror
+        // too makes it move independently at a slightly different rate than the server's copy, which
+        // renders as two overlapping Paimons drifting apart. Drive the mirror purely by server sync.
+        if (this.level().isClientSide) {
+            return;
+        }
+        Player player = null;
         if (getAnimation() > 0) {
             setAnimation(getAnimation() - 1);
             if (getAnimation() <= this.MAX_ANIMATION_TICKS) {
@@ -189,21 +195,22 @@ public class EntityPaimon extends ThrowableProjectile {
         }
         this.changeTicks++;
 
-        // Smoothly ease toward the target instead of the old constant-speed movement. A proportional
-        // (lerp) motion avoids the stop/start jitter near the target, and the speed cap keeps Paimon
-        // able to keep up with a sprinting player so it no longer falls 16 blocks back and snaps via teleport.
+        // Smoothly ease toward the target. The old instant velocity change made Paimon jerk (and
+        // visually smear/ghost) whenever the target flipped between in-front and behind as the owner
+        // toggled sneak, so now we ease the velocity toward the desired motion and cap the turn rate.
         Vec3 diff = targetPos.subtract(position());
         double distance = diff.length();
-        if (distance > 0.05) {
-            double speed = Math.min(distance * 0.25, 0.5);
-            Vec3 motion = diff.scale(speed / distance);
-            setDeltaMovement(motion);
-            faceEntity(player, 360.0F, 360.0F);
+        Vec3 desired = distance > 0.05 ? diff.scale(Math.min(distance * 0.25, 0.5) / distance) : Vec3.ZERO;
+        Vec3 motion = getDeltaMovement().add(desired.subtract(getDeltaMovement()).scale(0.5));
+        if (motion.lengthSqr() < 1.0E-4D) {
+            motion = Vec3.ZERO;
+        }
+        setDeltaMovement(motion);
+        if (motion.lengthSqr() > 0.0D) {
+            faceEntity(player, 30.0F, 30.0F);
             if (this.tickCount % 12 == 0 && level() instanceof ServerLevel level) {
                 level.sendParticles(ParticleTypes.END_ROD, getX() - motion.x, getY(), getZ() - motion.z, 1, -motion.x, -0.05D, -motion.z, .0);
             }
-        } else {
-            setDeltaMovement(Vec3.ZERO);
         }
     }
 
@@ -256,10 +263,10 @@ public class EntityPaimon extends ThrowableProjectile {
             if (stack.has(DataComponents.FOOD)) {
 
                 if (!this.level().isClientSide) {
-                    if (getVoiceCD() <= ConfigHandler.COMMON.soundInterval.get()) {
-                        randomThankSound(this.level().random.nextInt(3));
-                        setVoiceCD((int) (getVoiceCD() + ConfigHandler.COMMON.soundInterval.get() * 0.5D));
-                    }
+                    randomThankSound(this.level().random.nextInt(3));
+                    // Only push back the ambient-speech timer so the next idle voice line doesn't overlap
+                    // the thank-you, but never gate the thank-you itself (feeding should always respond).
+                    setVoiceCD(Math.max(getVoiceCD(), (int) (ConfigHandler.COMMON.soundInterval.get() * 0.5D)));
                     if (!player.getAbilities().instabuild) {
                         stack.shrink(1);
                     }
@@ -274,7 +281,7 @@ public class EntityPaimon extends ThrowableProjectile {
     }
 
     public float getSoundVolume() {
-        return 0.3F;
+        return 1.0F;
     }
 
     public void randomThankSound(int i) {

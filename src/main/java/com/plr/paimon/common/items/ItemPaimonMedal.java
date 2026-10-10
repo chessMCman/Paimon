@@ -82,7 +82,7 @@ public class ItemPaimonMedal extends Item implements ICurioItem {
     }
 
     public float getSoundVolume() {
-        return 0.25F;
+        return 1.0F;
     }
 
     public void randomSpawnSound(Entity entity, int i) {
