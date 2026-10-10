@@ -11,6 +11,7 @@ import net.minecraft.network.syncher.EntityDataAccessor;
 import net.minecraft.network.syncher.EntityDataSerializers;
 import net.minecraft.network.syncher.SynchedEntityData;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.sounds.SoundSource;
 import net.minecraft.util.Mth;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
@@ -282,6 +283,17 @@ public class EntityPaimon extends ThrowableProjectile {
 
     public float getSoundVolume() {
         return 1.0F;
+    }
+
+    /**
+     * Play Paimon's voice lines in the {@code voice} sound category rather than the default
+     * {@code neutral}. Immersive Engineering's ear defenders (and the earmuffs Curios slot) only
+     * dampen {@code ambient / weather / record / block / neutral / hostile / player}, so a genuine
+     * voice should never be muffled by wearing earmuffs.
+     */
+    @Override
+    public SoundSource getSoundSource() {
+        return SoundSource.VOICE;
     }
 
     public void randomThankSound(int i) {
